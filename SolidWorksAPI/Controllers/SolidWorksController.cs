@@ -82,6 +82,8 @@ public class Manager
 
     public async Task DownloadBlobFromAzure(string blobName, string outPath)
     {
+        Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
+
         var connectionString = _configuration["BlobStorage:ConnectionString"];
         var blobContainerName = _configuration["BlobStorage:ContainerName"];
 
