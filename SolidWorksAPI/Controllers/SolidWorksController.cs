@@ -5,6 +5,8 @@ using Azure.Storage.Blobs;
 using IConfiguration = Microsoft.Extensions.Configuration.IConfiguration;
 using System.Drawing;
 using SolidWorks.Interop.swconst;
+using System.Linq;
+
 
 [Route("api/[controller]")]
 [ApiController]
@@ -63,7 +65,9 @@ public class SolidWorksController : ControllerBase
 
         Console.WriteLine("5");
 
-        _manager.RotateAndTakeScreenshots(swModel, outPath);
+        string[] screenshotPaths = _manager.RotateAndTakeScreenshots(swModel, outPath);
+
+        Console.Write(string.Join(", ", screenshotPaths));
 
         Console.WriteLine("6");
 
@@ -72,7 +76,11 @@ public class SolidWorksController : ControllerBase
         string azureOutPath = filePath.Replace("input.step", "out");
         await _manager.UploadFolder(Path.Combine(outPath), azureOutPath);
 
-        return Ok();
+
+        //return azure paths
+        return Ok(
+            screenshotPaths.Select(localPath => Path.Combine(azureOutPath, Path.GetFileName(localPath)).Replace("\\", "/")).ToArray()
+        );
     }
 }
 
