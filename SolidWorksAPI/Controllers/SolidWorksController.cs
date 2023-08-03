@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc;
 using SolidWorks.Interop.sldworks;
 using Azure.Storage.Blobs;
 using IConfiguration = Microsoft.Extensions.Configuration.IConfiguration;
+using System.Drawing;
+using SolidWorks.Interop.swconst;
 
 [Route("api/[controller]")]
 [ApiController]
@@ -20,15 +22,55 @@ public class SolidWorksController : ControllerBase
     [HttpGet("run")]
     public async Task<ActionResult> Run(string filePath)
     {
-        _swApp.Visible = false;
+        _swApp.Visible = true;
+
+
+        int errors = 0;
 
         string downloadPath = Path.Combine(Directory.GetCurrentDirectory(), filePath.Replace('/', '\\'));
         await _manager.DownloadBlobFromAzure(filePath, downloadPath);
 
-        await _manager.RotateAndTakeScreenshots(downloadPath);
+        var dirName = Path.GetDirectoryName(downloadPath)!;
+        Directory.CreateDirectory(dirName);
+
+        string outPath = Path.Combine(dirName, "out");
+
+        ModelDoc2 swModel = _manager.OpenStepFile(downloadPath);
+
+        Console.WriteLine("1");
+
+        ModelView view = (ModelView)swModel.ActiveView;
+
+        Console.WriteLine("2");
+
+        // view.FrameState = (int)swWindowState_e.swWindowMaximized;
+        // _swApp.ActivateDoc2("Part14", false, errors);
+        // Console.WriteLine(errors);
+
+        swModel.ViewZoomtofit2();
+
+        Console.WriteLine("3");
+
+
+        // nt color = part.GetMaterialPropertyValues2((int)swInConfigurationOpts_e.swThisConfiguration, out _)[(int)swMaterialC];
+
+
+        _manager.DraftAnalysis();
+        Console.WriteLine("4");
+
+
+        swModel.ForceRebuild3(true);
+
+        Console.WriteLine("5");
+
+        _manager.RotateAndTakeScreenshots(swModel, outPath);
+
+        Console.WriteLine("6");
+
+        // _manager.ExitApp();
 
         string azureOutPath = filePath.Replace("input.step", "out");
-        await _manager.UploadFolder(Path.Combine(Path.GetDirectoryName(downloadPath)!, "out"), azureOutPath);
+        await _manager.UploadFolder(Path.Combine(outPath), azureOutPath);
 
         return Ok();
     }
@@ -45,7 +87,45 @@ public class Manager
         _configuration = configuration;
     }
 
-    public async Task RotateAndTakeScreenshots(string stepFilePath)
+    public Boolean DraftAnalysis()
+    {
+        ModelDoc2 swModel = (ModelDoc2)_swApp.ActiveDoc;
+
+        int[] colors = new int[] { 65280, 255, 65535, 16711680, 3446361 };
+
+        swModel.MoldDraftAnalysis(0.05235987755983, 8, (object)colors, 127);
+
+        return true;
+
+        // bool status = swModel.Extension.SelectByID2("Top Plane", "PLANE", 0, 0, 0, false, 0, null, 0);
+
+
+        ModelDocExtension swModelDocExt = (ModelDocExtension)swModel.Extension;
+
+
+        /*         object[] positiveDraft = new object[] { 0, 1, 0 };
+             object[] negativeDraft = new object[] { 1, 0, 0 };
+             object[] noDraft = new object[] { 1, 1, 0 };
+             object[] straddledFaces = new object[] { 0, 0, 1 }; */
+
+        /*      int[] colors = new int[4];
+
+             colors[0] = (255 << 16) | (0 << 8) | 0;    // Red color for positive draft
+             colors[1] = (0 << 16) | (255 << 8) | 0;    // Green color for negative draft
+             colors[2] = (0 << 16) | (0 << 8) | 255;    // Blue color for no draft
+             colors[3] = (255 << 16) | (255 << 8) | 0;  // Yellow color for straddled faces
+
+             int allValues = (int)(swDraftAnalysisShow_e.swDraftAnalysisShowNegative
+                             | swDraftAnalysisShow_e.swDraftAnalysisShowNegativeSteep
+                             | swDraftAnalysisShow_e.swDraftAnalysisShowPositive
+                             | swDraftAnalysisShow_e.swDraftAnalysisShowPositiveSteep
+                             | swDraftAnalysisShow_e.swDraftAnalysisShowStraddle
+                             | swDraftAnalysisShow_e.swDraftAnalysisShowSurface); */
+
+        // swModel.Extension.SelectByID2("Top Plane", "PLANE", 0, 0, 0, false, 1, null, 0);
+    }
+
+    public ModelDoc2 OpenStepFile(string stepFilePath)
     {
         int errors = 0;
 
@@ -57,28 +137,72 @@ public class Manager
         //swImportStepConfigData with ImportStepData::MapConfigurationData
         swImportStepData.MapConfigurationData = true;
 
-        Console.Write(stepFilePath);
-        //Import the STEP file
         PartDoc swPart = (PartDoc)_swApp.LoadFile4(stepFilePath, "r", swImportStepData, ref errors);
-        Console.Write(errors);
         ModelDoc2 swModel = (ModelDoc2)swPart;
-        ModelDocExtension swModelDocExt = (ModelDocExtension)swModel.Extension;
 
         //Run diagnostics on the STEP file and repair any bad faces
-        errors = swPart.ImportDiagnosis(true, false, true, 0);
+        // errors = swPart.ImportDiagnosis(true, false, true, 0);
 
         swModel.ViewDisplayShaded();
 
         // Zoom to fit
         swModel.ViewZoomtofit2();
 
-        string outPath = Directory.CreateDirectory(Path.Combine(Path.GetDirectoryName(stepFilePath), "out")).FullName;
-        string screenshotPath = Path.Combine(outPath, "screen.bmp");
+        swModel.ViewConstraint();
 
-        swModel.SaveBMP(screenshotPath, 0, 0);
+        swModel.ViewDispCoordinateSystems();
 
-        _swApp.ExitApp();
+        /*       swModel.ViewDisplayCurvature();
+              swModel.ViewDisplayFaceted();
+              swModel.ViewDispRefplanes();
+       */
+        return swModel;
     }
+
+    public string[] RotateAndTakeScreenshots(ModelDoc2 swModel, string outDir)
+    {
+
+        ModelView view = (ModelView)swModel.ActiveView;
+
+        /*         view.RotateAboutCenter(Math.PI / 2, Math.PI / 2);
+
+                swModel.GraphicsRedraw2(); */
+
+        Directory.CreateDirectory(outDir);
+
+
+        var views = new (int viewID, string name)[]
+        {
+            (2, "backView"),
+            (6, "bottomView"),
+            (9, "dimetricView"),
+            (1, "frontView"),
+            (7, "isometricView"),
+            (3, "leftView"),
+            (4, "rightView"),
+            (5, "topView"),
+            (8, "trimetricView")
+        };
+
+        var paths = new string[views.Length];
+
+        for (int i = 0; i < views.Length; i++)
+        {
+            var (viewID, name) = views[i];
+
+            swModel.ShowNamedView2("", viewID);
+
+            swModel.ViewZoomtofit2();
+
+            string path = Path.Combine(outDir, name + ".bmp");
+            swModel.SaveBMP(path, 0, 0);
+
+            paths[i] = path;
+        }
+
+        return paths;
+    }
+
 
     public async Task DownloadBlobFromAzure(string blobName, string outPath)
     {
@@ -123,5 +247,10 @@ public class Manager
 
             Console.WriteLine($"Uploaded: {blobName}");
         }
+    }
+
+    public void ExitApp()
+    {
+        _swApp.ExitApp();
     }
 }
