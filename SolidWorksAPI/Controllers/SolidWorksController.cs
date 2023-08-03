@@ -15,71 +15,36 @@ public class SolidWorksController : ControllerBase
     private readonly ISldWorks _swApp;
     private readonly Manager _manager;
 
-    public SolidWorksController(ISldWorks swApp, Manager manager)
+
+    public SolidWorksController(ISldWorks swApp, Manager manager  /* IConfiguration configuration */)
     {
         _swApp = swApp;
         _manager = manager;
+
     }
 
-    [HttpGet("run")]
-    public async Task<ActionResult> Run(string filePath)
+    [HttpGet("draftAnalysis")]
+    public async Task<ActionResult> RunDraftAnalysis(string filePath)
     {
+
+        Console.WriteLine("Running Draft Analysis");
         _swApp.Visible = true;
 
-
-        int errors = 0;
-
-        string downloadPath = Path.Combine(Directory.GetCurrentDirectory(), filePath.Replace('/', '\\'));
-        await _manager.DownloadBlobFromAzure(filePath, downloadPath);
-
-        var dirName = Path.GetDirectoryName(downloadPath)!;
-        Directory.CreateDirectory(dirName);
-
-        string outPath = Path.Combine(dirName, "out");
-
-        ModelDoc2 swModel = _manager.OpenStepFile(downloadPath);
-
-        Console.WriteLine("1");
-
-        ModelView view = (ModelView)swModel.ActiveView;
-
-        Console.WriteLine("2");
-
-        // view.FrameState = (int)swWindowState_e.swWindowMaximized;
-        // _swApp.ActivateDoc2("Part14", false, errors);
-        // Console.WriteLine(errors);
-
-        swModel.ViewZoomtofit2();
-
-        Console.WriteLine("3");
-
-
-        // nt color = part.GetMaterialPropertyValues2((int)swInConfigurationOpts_e.swThisConfiguration, out _)[(int)swMaterialC];
-
-
-        _manager.DraftAnalysis();
-        Console.WriteLine("4");
-
-
-        swModel.ForceRebuild3(true);
-
-        Console.WriteLine("5");
-
-        string[] screenshotPaths = _manager.RotateAndTakeScreenshots(swModel, outPath);
-
-        Console.Write(string.Join(", ", screenshotPaths));
-
-        Console.WriteLine("6");
-
-        // _manager.ExitApp();
-
-        string azureOutPath = filePath.Replace("input.step", "out");
-        await _manager.UploadFolder(Path.Combine(outPath), azureOutPath);
-
-
-        //return azure paths
         return Ok(
-            screenshotPaths.Select(localPath => Path.Combine(azureOutPath, Path.GetFileName(localPath)).Replace("\\", "/")).ToArray()
+            await _manager.RunProgram(true, filePath)
+        );
+    }
+
+    [HttpGet("screenshots")]
+    public async Task<ActionResult> RunScreenshots(string filePath)
+    {
+
+        Console.WriteLine("Running Screenshots");
+
+        _swApp.Visible = true;
+
+        return Ok(
+            await _manager.RunProgram(false, filePath)
         );
     }
 }
@@ -95,13 +60,73 @@ public class Manager
         _configuration = configuration;
     }
 
-    public Boolean DraftAnalysis()
+    public async Task<string[]> RunProgram(bool doDraftAnalysis, string filePath)
+    {
+        string downloadPath = Path.Combine(Directory.GetCurrentDirectory(), filePath.Replace('/', '\\'));
+        await DownloadBlobFromAzure(filePath, downloadPath);
+
+        var dirName = Path.GetDirectoryName(downloadPath)!;
+        Directory.CreateDirectory(dirName);
+
+        string outPath = Path.Combine(dirName, "out");
+
+        ModelDoc2 swModel = OpenStepFile(downloadPath);
+
+
+        ModelView view = (ModelView)swModel.ActiveView;
+
+
+        // view.FrameState = (int)swWindowState_e.swWindowMaximized;
+        // _swApp.ActivateDoc2("Part14", false, errors);
+        // Console.WriteLine(errors);
+
+        swModel.ViewZoomtofit2();
+
+
+        // nt color = part.GetMaterialPropertyValues2((int)swInConfigurationOpts_e.swThisConfiguration, out _)[(int)swMaterialC];
+
+        if (doDraftAnalysis)
+        {
+            DraftAnalysis();
+
+        }
+
+
+        // swModel.ForceRebuild3(true);
+
+        string[] screenshotPaths = RotateAndTakeScreenshots(swModel, outPath);
+
+
+        if (doDraftAnalysis)
+        {
+            _swApp.RunCommand(2736, "Automated Draft Analysis Cancel"); //Close Menu
+        }
+
+        Console.Write(string.Join(", ", screenshotPaths));
+
+        _swApp.CloseDoc(swModel.GetTitle());
+        // ExitApp();
+
+        string azureOutPath = filePath.Replace("input.step", "out");
+        await UploadFolder(Path.Combine(outPath), azureOutPath);
+        return screenshotPaths.Select(localPath => Path.Combine(azureOutPath, Path.GetFileName(localPath)).Replace("\\", "/")).ToArray();
+
+    }
+
+    public bool DraftAnalysis()
     {
         ModelDoc2 swModel = (ModelDoc2)_swApp.ActiveDoc;
 
         int[] colors = new int[] { 65280, 255, 65535, 16711680, 3446361 };
 
-        swModel.MoldDraftAnalysis(0.05235987755983, 8, (object)colors, 127);
+        swModel.Extension.SelectByID2("Top Plane", "PLANE", 0, 0, 0, false, 0, null, 0);
+
+        _swApp.RunCommand(2885, "Automated Draft Analysis Start");
+        _swApp.RunCommand(1463, "Automated Draft Analysis OK");
+        // _swApp.RunCommand(2736, "Automated Draft Analysis Cancel");
+        // swModel.MoldDraftAnalysis(0.05235987755983, 8, (object)colors, 127);
+
+        swModel.ClearSelection();
 
         return true;
 
